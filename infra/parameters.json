@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "eastus"
+    },
+    "appName": {
+      "value": "remote-mcp-bridge"
+    },
+    "environmentName": {
+      "value": "mcp-bridge-env"
+    },
+    "containerImage": {
+      "value": "YOUR_ACR_NAME.azurecr.io/remote-mcp-bridge:latest"
+    },
+    "containerPort": {
+      "value": 3000
+    },
+    "cpuCores": {
+      "value": "0.25"
+    },
+    "memory": {
+      "value": "0.5Gi"
+    },
+    "minReplicas": {
+      "value": 1
+    },
+    "maxReplicas": {
+      "value": 10
+    },
+    "mcpConfigPath": {
+      "value": "specs/ado-mcp-configuration.json"
+    },
+    "maxBufferSize": {
+      "value": "1048576"
+    },
+    "maxSubscribers": {
+      "value": "100"
+    },
+    "maxMessageSize": {
+      "value": "1048576"
+    },
+    "keepaliveInterval": {
+      "value": "30000"
+    },
+    "streamTimeout": {
+      "value": "300000"
+    },
+    "restartBackoffBase": {
+      "value": "1000"
+    },
+    "restartBackoffMax": {
+      "value": "60000"
+    },
+    "lazyStart": {
+      "value": "true"
+    }
+  }
+}
+

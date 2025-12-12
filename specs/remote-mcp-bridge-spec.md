@@ -227,8 +227,8 @@ APIM SHOULD be used to provide authentication/authorization because remote MCP a
 The bridge can be deployed to:
 
 - **Azure Container Apps (ACA)** (recommended for containerized workloads)
+    - create a templatized container that can run local MCP servers using ADO MCP as example
 - **Azure App Service** (for HTTP workloads; ensure streaming/SSE is supported end-to-end)
-- **AKS** (for advanced networking and scaling needs)
 
 Key operational requirements:
 
