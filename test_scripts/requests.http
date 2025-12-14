@@ -1,0 +1,48 @@
+http://localhost:3000/healthz
+
+### 
+
+http://localhost:3000/
+
+### 
+
+PoST http://localhost:3000/mcp
+
+###
+
+POST http://localhost:3000/mcp/streamable
+Accept-Language: en-US,en;q=0.9
+Connection: keep-alive
+accept: application/json, text/event-stream
+content-type: application/json 
+
+{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+            "sampling": {},
+            "elicitation": {},
+            "roots": {
+                "listChanged": true
+            }
+        },
+        "clientInfo": {
+            "name": "inspector-client",
+            "version": "0.17.5"
+        }
+    },
+    "id": 0
+}
+
+####
+
+curl -N -X POST http://localhost:3000/mcp/streamable   -H "Content-Type: application/json"  -H "Accept: application/json" -d '{"jsonrpc":"2.0","method":"initialize","params":{},"id":0}'
+
+
+
+
+
+
+
