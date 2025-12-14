@@ -233,12 +233,30 @@ export class StreamableHttpHandler {
 
         this.subscribers.set(subscriberId, subscriber);
 
-        // Handle client disconnect
-        req.on('close', () => {
-          console.log(`[StreamableHTTP] ${requestId} POST stream connection closed: ${subscriberId}`);
+        // Handle client disconnect for POST streams
+        // For POST requests, req.on('close') fires when body is consumed, not on actual disconnect
+        // We need to check the socket state to determine real disconnection
+        const socket = req.socket;
+        
+        // Log when request body is fully consumed (this is normal, not a disconnect)
+        req.on('end', () => {
+          console.log(`[StreamableHTTP] ${requestId} POST request body consumed for ${subscriberId} (stream stays open)`);
+        });
+
+        // Listen to socket close events (actual client disconnect)
+        // For POST streams, this fires when the client actually disconnects,
+        // not when the request body is consumed
+        socket.on('close', () => {
+          console.log(`[StreamableHTTP] ${requestId} POST socket closed for ${subscriberId}`);
           this.removeSubscriber(subscriberId);
         });
 
+        socket.on('error', (error) => {
+          console.error(`[StreamableHTTP] ${requestId} POST socket error for ${subscriberId}:`, error);
+          this.removeSubscriber(subscriberId);
+        });
+
+        // Handle request abort (client explicitly aborted)
         req.on('aborted', () => {
           console.log(`[StreamableHTTP] ${requestId} POST stream connection aborted: ${subscriberId}`);
           this.removeSubscriber(subscriberId);
@@ -248,6 +266,17 @@ export class StreamableHttpHandler {
         res.on('error', (error) => {
           console.error(`[StreamableHTTP] ${requestId} POST response error for ${subscriberId}:`, error);
           this.removeSubscriber(subscriberId);
+        });
+
+        // Handle response close/finish (client closed response)
+        res.on('close', () => {
+          console.log(`[StreamableHTTP] ${requestId} POST response closed for ${subscriberId}`);
+          this.removeSubscriber(subscriberId);
+        });
+
+        res.on('finish', () => {
+          console.log(`[StreamableHTTP] ${requestId} POST response finished for ${subscriberId}`);
+          // Don't remove subscriber on finish - stream might still be open
         });
 
         // Send initial response to open the stream
