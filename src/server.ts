@@ -42,6 +42,21 @@ export class BridgeServer {
       config.maxBufferSize,
       config.maxSubscribers
     );
+    
+    // Set up message relay callback for streamable HTTP handler
+    this.streamableHttpHandler.setMessageRelayCallback((message: string) => {
+      if (this.processManager.isRunning()) {
+        this.processManager.write(message);
+      } else if (this.config.lazyStart) {
+        this.processManager.start();
+        setTimeout(() => {
+          if (this.processManager.isRunning()) {
+            this.processManager.write(message);
+          }
+        }, 100);
+      }
+    });
+    
     this.messageRouter = new MessageRouter(this.sseHandler, this.streamableHttpHandler);
 
     // Initialize process manager
@@ -149,58 +164,50 @@ export class BridgeServer {
     this.app.post('/mcp/stream', handleSseStream);
 
     // Streamable HTTP endpoint (GET and POST)
-    const handleStreamableHttp = (req: Request, res: Response) => {
+    // Per MCP spec: GET establishes stream, POST sends messages and optionally establishes stream
+    this.app.get('/mcp/streamable', (req: Request, res: Response) => {
       const requestId = (req as any).requestId || 'unknown';
-      const method = req.method;
       console.log(
-        `[${method} /mcp/streamable] ${requestId} Streamable HTTP connection requested | ` +
+        `[GET /mcp/streamable] ${requestId} Streamable HTTP GET requested | ` +
         `IP: ${req.ip || req.socket.remoteAddress || 'unknown'} | ` +
         `UA: ${req.headers['user-agent'] || 'unknown'} | ` +
-        `Accept: ${req.headers['accept'] || 'none'} | ` +
-        `Query: ${Object.keys(req.query).length > 0 ? JSON.stringify(req.query) : 'none'}` +
-        (method === 'POST' && req.body ? ` | Body size: ${JSON.stringify(req.body).length}b` : '')
+        `Accept: ${req.headers['accept'] || 'none'}`
       );
       
-      // Ensure process is running before handling initial message
+      // Ensure process is running before establishing stream
       if (!this.processManager.isRunning() && this.config.lazyStart) {
-        console.log(`[${method} /mcp/streamable] ${requestId} Starting process via lazy start`);
+        console.log(`[GET /mcp/streamable] ${requestId} Starting process via lazy start`);
         this.processManager.start();
       }
       
-      // Handle initial message from POST body if present
-      if (method === 'POST' && req.body && typeof req.body === 'object') {
-        try {
-          // Ensure process is running before writing
-          if (!this.processManager.isRunning()) {
-            console.warn(`[${method} /mcp/streamable] ${requestId} Process not running, cannot send initial message`);
-          } else {
-            // Validate and send initial message if it's a valid JSON-RPC message
-            if (Array.isArray(req.body)) {
-              const messages = parseJsonRpcBatch(req.body);
-              for (const msg of messages) {
-                const formatted = formatJsonRpcMessage(msg as JsonRpcMessage | JsonRpcBatch);
-                this.processManager.write(formatted);
-              }
-              console.log(`[${method} /mcp/streamable] ${requestId} Processed ${messages.length} initial messages from POST body`);
-            } else {
-              validateJsonRpcMessage(req.body);
-              const formatted = formatJsonRpcMessage(req.body as JsonRpcMessage);
-              this.processManager.write(formatted);
-              const methodName = (req.body as any).method || 'unknown';
-              console.log(`[${method} /mcp/streamable] ${requestId} Processed initial message from POST body: method=${methodName}`);
-            }
-          }
-        } catch (error) {
-          console.warn(`[${method} /mcp/streamable] ${requestId} Failed to process initial message from POST body:`, error);
-          // Continue with stream establishment even if initial message fails
-        }
+      // Handle GET request - establish stream for server-to-client messages
+      this.streamableHttpHandler.handleStream(req, res);
+    });
+    
+    this.app.post('/mcp/streamable', (req: Request, res: Response) => {
+      const requestId = (req as any).requestId || 'unknown';
+      console.log(
+        `[POST /mcp/streamable] ${requestId} Streamable HTTP POST requested | ` +
+        `IP: ${req.ip || req.socket.remoteAddress || 'unknown'} | ` +
+        `UA: ${req.headers['user-agent'] || 'unknown'} | ` +
+        `Accept: ${req.headers['accept'] || 'none'} | ` +
+        `Content-Type: ${req.headers['content-type'] || 'none'}` +
+        (req.body ? ` | Body size: ${JSON.stringify(req.body).length}b` : '')
+      );
+      
+      // Ensure process is running before handling message
+      if (!this.processManager.isRunning() && this.config.lazyStart) {
+        console.log(`[POST /mcp/streamable] ${requestId} Starting process via lazy start`);
+        this.processManager.start();
       }
       
-      this.streamableHttpHandler.handleStream(req, res);
-    };
-    
-    this.app.get('/mcp/streamable', handleStreamableHttp);
-    this.app.post('/mcp/streamable', handleStreamableHttp);
+      // Check if client wants to establish a stream (via query parameter or header)
+      // Per MCP spec: POST can optionally establish a stream for multiple responses
+      const establishStream = req.query.stream === 'true' || req.headers['x-mcp-stream'] === 'true';
+      
+      // Handle POST request - relay messages to STDIO and optionally establish stream
+      this.streamableHttpHandler.handlePost(req, res, establishStream);
+    });
 
     // Handle GET requests to POST endpoint (wrong method)
     this.app.get('/mcp', (req: Request, res: Response) => {

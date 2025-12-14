@@ -1,16 +1,22 @@
 /**
- * Streamable HTTP handler for alternative streaming transport (APIM preferred)
+ * Streamable HTTP handler for MCP Streamable HTTP transport
+ * Implements bidirectional messaging per MCP specification 2025-11-25
  */
 
 import type { Request, Response } from 'express';
 import type { StreamSubscriber } from './types.js';
 import { addToBuffer, isBufferOverLimit, clearBuffer } from './utils/buffer.js';
+import { validateJsonRpcMessage, parseJsonRpcBatch, formatJsonRpcMessage } from './utils/jsonrpc.js';
+import type { JsonRpcMessage, JsonRpcBatch } from './types.js';
+
+export type MessageRelayCallback = (message: string) => void;
 
 export class StreamableHttpHandler {
   private subscribers: Map<string, StreamSubscriber> = new Map();
   private readonly maxBufferSize: number;
   private readonly maxSubscribers: number;
   private subscriberIdCounter = 0;
+  private messageRelayCallback?: MessageRelayCallback;
 
   constructor(maxBufferSize: number = 1048576, maxSubscribers: number = 100) {
     this.maxBufferSize = maxBufferSize;
@@ -18,7 +24,15 @@ export class StreamableHttpHandler {
   }
 
   /**
-   * Handle Streamable HTTP connection request
+   * Set callback for relaying incoming messages to STDIO
+   */
+  public setMessageRelayCallback(callback: MessageRelayCallback): void {
+    this.messageRelayCallback = callback;
+  }
+
+  /**
+   * Handle Streamable HTTP GET request (establish stream for server-to-client messages)
+   * Per MCP spec: GET requests establish a stream to receive server messages
    */
   public handleStream(req: Request, res: Response): void {
     const requestId = (req as any).requestId || 'unknown';
@@ -33,7 +47,7 @@ export class StreamableHttpHandler {
       return;
     }
 
-    // Set streaming headers (similar to SSE but using chunked transfer encoding)
+    // Set streaming headers per MCP spec for Streamable HTTP transport
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Transfer-Encoding', 'chunked');
     res.setHeader('Cache-Control', 'no-cache');
@@ -54,9 +68,6 @@ export class StreamableHttpHandler {
 
     this.subscribers.set(subscriberId, subscriber);
 
-    // Note: No initial connection message needed for Streamable HTTP
-    // The client will know it's connected when it receives the first valid JSON-RPC message
-
     // Handle client disconnect
     req.on('close', () => {
       console.log(`[StreamableHTTP] ${requestId} Client connection closed: ${subscriberId}`);
@@ -68,7 +79,132 @@ export class StreamableHttpHandler {
       this.removeSubscriber(subscriberId);
     });
 
-    console.log(`[StreamableHTTP] ${requestId} Client connected: ${subscriberId} (total: ${this.subscribers.size})`);
+    console.log(`[StreamableHTTP] ${requestId} GET stream established: ${subscriberId} (total: ${this.subscribers.size})`);
+  }
+
+  /**
+   * Handle Streamable HTTP POST request (client-to-server messages)
+   * Per MCP spec: POST requests send JSON-RPC messages to server
+   * Server can respond with single JSON response or establish stream for multiple responses
+   */
+  public handlePost(req: Request, res: Response, establishStream: boolean = false): void {
+    const requestId = (req as any).requestId || 'unknown';
+    
+    // Validate Content-Type
+    const contentType = req.headers['content-type'];
+    if (!contentType || !contentType.includes('application/json')) {
+      const errorMsg = `Content-Type must be application/json, got: ${contentType || 'none'}`;
+      (res as any).errorDetails = errorMsg;
+      console.warn(`[StreamableHTTP] ${requestId} ${errorMsg}`);
+      res.status(400).json({ 
+        error: errorMsg,
+        receivedContentType: contentType || 'none',
+        expectedContentType: 'application/json'
+      });
+      return;
+    }
+
+    // Validate body
+    if (!req.body || typeof req.body !== 'object') {
+      const errorMsg = `Request body must be a JSON object or array, got: ${typeof req.body}`;
+      (res as any).errorDetails = errorMsg;
+      console.warn(`[StreamableHTTP] ${requestId} ${errorMsg}`);
+      res.status(400).json({ 
+        error: errorMsg,
+        receivedType: typeof req.body,
+        expectedType: 'object or array'
+      });
+      return;
+    }
+
+    try {
+      // Parse and validate JSON-RPC messages
+      let messages: JsonRpcMessage[];
+      const isBatch = Array.isArray(req.body);
+      
+      if (isBatch) {
+        messages = parseJsonRpcBatch(req.body);
+        console.log(`[StreamableHTTP] ${requestId} POST parsed batch: ${messages.length} messages`);
+      } else {
+        validateJsonRpcMessage(req.body);
+        messages = [req.body as JsonRpcMessage];
+        const method = (req.body as any).method || 'unknown';
+        console.log(`[StreamableHTTP] ${requestId} POST validated message: method=${method}`);
+      }
+
+      // Relay messages to STDIO via callback
+      if (this.messageRelayCallback) {
+        for (const msg of messages) {
+          const formatted = formatJsonRpcMessage(msg as JsonRpcMessage | JsonRpcBatch);
+          this.messageRelayCallback(formatted);
+        }
+        console.log(`[StreamableHTTP] ${requestId} POST relayed ${messages.length} message(s) to STDIO`);
+      } else {
+        console.warn(`[StreamableHTTP] ${requestId} POST no message relay callback set, messages not relayed`);
+      }
+
+      // If establishing a stream, set up streaming response
+      if (establishStream) {
+        // Check subscriber limit
+        if (this.subscribers.size >= this.maxSubscribers) {
+          const errorMsg = `Maximum number of subscribers reached (${this.maxSubscribers})`;
+          (res as any).errorDetails = errorMsg;
+          res.status(503).json({ error: errorMsg });
+          return;
+        }
+
+        // Set streaming headers
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+
+        // Generate unique subscriber ID
+        const subscriberId = `stream_post_${Date.now()}_${++this.subscriberIdCounter}`;
+        
+        const subscriber: StreamSubscriber = {
+          id: subscriberId,
+          response: res,
+          buffer: [],
+          bufferSize: 0,
+          connectedAt: new Date(),
+          lastActivity: new Date(),
+        };
+
+        this.subscribers.set(subscriberId, subscriber);
+
+        // Handle client disconnect
+        req.on('close', () => {
+          console.log(`[StreamableHTTP] ${requestId} POST stream connection closed: ${subscriberId}`);
+          this.removeSubscriber(subscriberId);
+        });
+
+        req.on('aborted', () => {
+          console.log(`[StreamableHTTP] ${requestId} POST stream connection aborted: ${subscriberId}`);
+          this.removeSubscriber(subscriberId);
+        });
+
+        console.log(`[StreamableHTTP] ${requestId} POST stream established: ${subscriberId} (total: ${this.subscribers.size})`);
+      } else {
+        // Return 202 Accepted for async processing (responses will come via stream)
+        // Per MCP spec: server can respond with single JSON response or establish stream
+        res.status(202).json({
+          status: 'accepted',
+          messageCount: messages.length,
+        });
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      (res as any).errorDetails = `Invalid JSON-RPC message: ${errorMsg}`;
+      
+      console.error(`[StreamableHTTP] ${requestId} POST error processing message:`, error);
+      
+      res.status(400).json({
+        error: 'Invalid JSON-RPC message',
+        details: errorMsg,
+      });
+    }
   }
 
   /**
@@ -129,12 +265,15 @@ export class StreamableHttpHandler {
 
   /**
    * Flush buffered messages for a subscriber
+   * Per MCP spec: Streamable HTTP uses newline-delimited JSON (NDJSON) format
+   * Each JSON-RPC message is sent as a single line, terminated by a newline
    */
   private flushSubscriber(subscriber: StreamSubscriber): void {
     try {
       while (subscriber.buffer.length > 0) {
         const message = subscriber.buffer[0];
-        // Streamable HTTP: send JSON lines (newline-delimited JSON)
+        // Streamable HTTP: send JSON lines (newline-delimited JSON per MCP spec)
+        // Format: <json-object>\n (one JSON object per line)
         const written = (subscriber.response as Response).write(message + '\n');
         
         if (!written) {

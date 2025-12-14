@@ -143,11 +143,14 @@ export class SseHandler {
 
   /**
    * Flush buffered messages for a subscriber
+   * Per MCP spec (deprecated SSE transport): Messages are sent as SSE events
+   * Format: data: <json-object>\n\n (one JSON-RPC message per SSE event)
    */
   private flushSubscriber(subscriber: StreamSubscriber): void {
     try {
       while (subscriber.buffer.length > 0) {
         const message = subscriber.buffer[0];
+        // SSE format per MCP spec: data: <json>\n\n
         const sseMessage = `data: ${message}\n\n`;
         const written = (subscriber.response as Response).write(sseMessage);
         
