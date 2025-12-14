@@ -21,9 +21,15 @@ export class StreamableHttpHandler {
    * Handle Streamable HTTP connection request
    */
   public handleStream(req: Request, res: Response): void {
+    const requestId = (req as any).requestId || 'unknown';
+    
     // Check subscriber limit
     if (this.subscribers.size >= this.maxSubscribers) {
-      res.status(503).json({ error: 'Maximum number of subscribers reached' });
+      const errorMsg = `Maximum number of subscribers reached (${this.maxSubscribers})`;
+      (res as any).errorDetails = errorMsg;
+      const errorResponse = { error: errorMsg };
+      console.warn(`[StreamableHTTP] ${requestId} ${errorMsg} | Response: ${JSON.stringify(errorResponse)}`);
+      res.status(503).json(errorResponse);
       return;
     }
 
@@ -48,25 +54,21 @@ export class StreamableHttpHandler {
 
     this.subscribers.set(subscriberId, subscriber);
 
-    // Send initial connection message
-    try {
-      res.write(JSON.stringify({ type: 'connected', id: subscriberId }) + '\n');
-    } catch (error) {
-      console.error(`[StreamableHTTP] Failed to write initial message:`, error);
-      this.removeSubscriber(subscriberId);
-      return;
-    }
+    // Note: No initial connection message needed for Streamable HTTP
+    // The client will know it's connected when it receives the first valid JSON-RPC message
 
     // Handle client disconnect
     req.on('close', () => {
+      console.log(`[StreamableHTTP] ${requestId} Client connection closed: ${subscriberId}`);
       this.removeSubscriber(subscriberId);
     });
 
     req.on('aborted', () => {
+      console.log(`[StreamableHTTP] ${requestId} Client connection aborted: ${subscriberId}`);
       this.removeSubscriber(subscriberId);
     });
 
-    console.log(`[StreamableHTTP] Client connected: ${subscriberId} (total: ${this.subscribers.size})`);
+    console.log(`[StreamableHTTP] ${requestId} Client connected: ${subscriberId} (total: ${this.subscribers.size})`);
   }
 
   /**
@@ -79,19 +81,31 @@ export class StreamableHttpHandler {
 
     const messageSize = Buffer.byteLength(message, 'utf8');
     const toRemove: string[] = [];
+    let parsedMessage: any;
+    
+    try {
+      parsedMessage = JSON.parse(message);
+    } catch {
+      parsedMessage = { type: 'unknown' };
+    }
+    
+    const messageType = parsedMessage.method || parsedMessage.type || 'unknown';
+    const messageId = parsedMessage.id || 'unknown';
+
+    console.log(`[StreamableHTTP] Broadcasting message to ${this.subscribers.size} subscribers: type=${messageType}, id=${messageId}, size=${messageSize}b`);
 
     for (const [id, subscriber] of this.subscribers.entries()) {
       try {
         // Check if buffer would exceed limit
         if (isBufferOverLimit(subscriber, this.maxBufferSize - messageSize)) {
-          console.warn(`[StreamableHTTP] Subscriber ${id} buffer over limit, disconnecting`);
+          console.warn(`[StreamableHTTP] Subscriber ${id} buffer over limit (${subscriber.bufferSize}/${this.maxBufferSize}), disconnecting`);
           toRemove.push(id);
           continue;
         }
 
         // Try to add to buffer
         if (!addToBuffer(subscriber, message, this.maxBufferSize)) {
-          console.warn(`[StreamableHTTP] Subscriber ${id} buffer full, disconnecting`);
+          console.warn(`[StreamableHTTP] Subscriber ${id} buffer full (${subscriber.bufferSize}/${this.maxBufferSize}), disconnecting`);
           toRemove.push(id);
           continue;
         }
@@ -99,14 +113,17 @@ export class StreamableHttpHandler {
         // Write buffered messages if possible
         this.flushSubscriber(subscriber);
       } catch (error) {
-        console.error(`[StreamableHTTP] Error broadcasting to subscriber ${id}:`, error);
+        console.error(`[StreamableHTTP] Error broadcasting to subscriber ${id} (message: ${messageType}, id: ${messageId}):`, error);
         toRemove.push(id);
       }
     }
 
     // Remove failed subscribers
-    for (const id of toRemove) {
-      this.removeSubscriber(id);
+    if (toRemove.length > 0) {
+      console.warn(`[StreamableHTTP] Removing ${toRemove.length} failed subscribers`);
+      for (const id of toRemove) {
+        this.removeSubscriber(id);
+      }
     }
   }
 
@@ -126,6 +143,23 @@ export class StreamableHttpHandler {
             this.flushSubscriber(subscriber);
           });
           return;
+        }
+
+        // Log response sent to subscriber
+        try {
+          let parsedMessage: any;
+          try {
+            parsedMessage = JSON.parse(message);
+          } catch {
+            parsedMessage = { type: 'unknown' };
+          }
+          const messageType = parsedMessage.method || parsedMessage.type || 'unknown';
+          const messageId = parsedMessage.id || 'unknown';
+          const messagePreview = message.length > 200 ? message.substring(0, 200) + '...' : message;
+          console.log(`[StreamableHTTP] Response sent to ${subscriber.id}: type=${messageType}, id=${messageId}, size=${message.length}b | ${messagePreview}`);
+        } catch (logError) {
+          // Don't fail on logging errors
+          console.log(`[StreamableHTTP] Response sent to ${subscriber.id}: size=${message.length}b`);
         }
 
         // Successfully written, remove from buffer
@@ -175,7 +209,7 @@ export class StreamableHttpHandler {
         const subscriber = this.subscribers.get(id);
         if (subscriber) {
           try {
-            (subscriber.response as Response).write(JSON.stringify({ type: 'closing' }) + '\n');
+            // Just close the connection - no need for a closing message
             (subscriber.response as Response).end(() => resolve());
           } catch {
             resolve();

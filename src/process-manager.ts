@@ -4,6 +4,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import type { McpTool, ProcessState } from './types.js';
+import type { JsonRpcMessage, JsonRpcBatch } from './types.js';
 import { resolveInputVariables } from './config.js';
 import { formatJsonRpcMessage } from './utils/jsonrpc.js';
 
@@ -59,12 +60,34 @@ export class ProcessManager {
     try {
       const resolvedArgs = resolveInputVariables(this.tool.args, []);
       
-      console.log(`[ProcessManager] Spawning process: ${this.tool.command} ${resolvedArgs.join(' ')}`);
+      const isWindows = process.platform === 'win32';
+      let command = this.tool.command;
+      let args: string[];
+      let spawnOptions: Parameters<typeof spawn>[2];
+      
+      if (isWindows) {
+        // On Windows, use cmd.exe explicitly to ensure proper command resolution
+        // This ensures npx/npm .cmd files are found correctly
+        command = 'cmd.exe';
+        args = ['/c', this.tool.command, ...resolvedArgs];
+        spawnOptions = {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
+          shell: false, // We're already using cmd.exe explicitly
+        };
+      } else {
+        // On Unix-like systems, spawn directly without shell
+        args = resolvedArgs;
+        spawnOptions = {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
+          shell: false,
+        };
+      }
+      
+      console.log(`[ProcessManager] Spawning process: ${command} ${args.join(' ')}`);
 
-      this.process = spawn(this.tool.command, resolvedArgs, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
-      });
+      this.process = spawn(command, args, spawnOptions);
 
       this.state.pid = this.process.pid;
       this.state.started = true;
@@ -149,7 +172,14 @@ export class ProcessManager {
     }
 
     try {
-      const jsonString = typeof message === 'string' ? message : formatJsonRpcMessage(message);
+      let jsonString: string;
+      if (typeof message === 'string') {
+        jsonString = message;
+      } else {
+        // TypeScript needs explicit type assertion here
+        const rpcMessage: JsonRpcMessage | JsonRpcBatch = message as JsonRpcMessage | JsonRpcBatch;
+        jsonString = formatJsonRpcMessage(rpcMessage);
+      }
       const written = this.process.stdin.write(jsonString);
       
       if (!written) {
@@ -191,6 +221,11 @@ export class ProcessManager {
     }
 
     return new Promise((resolve) => {
+      if (!this.process) {
+        resolve();
+        return;
+      }
+
       const timeout = setTimeout(() => {
         console.warn('[ProcessManager] Process did not terminate gracefully, killing');
         this.process?.kill('SIGKILL');

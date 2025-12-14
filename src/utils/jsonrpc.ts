@@ -37,12 +37,12 @@ export function validateJsonRpcMessage(obj: unknown): JsonRpcMessage {
 
   // Check if it's a request (has method, optional id)
   if ('method' in msg && typeof msg.method === 'string') {
-    return msg as JsonRpcRequest | JsonRpcNotification;
+    return msg as unknown as JsonRpcRequest | JsonRpcNotification;
   }
 
   // Check if it's a response (has result or error, required id)
   if (('result' in msg || 'error' in msg) && 'id' in msg) {
-    return msg as JsonRpcResponse;
+    return msg as unknown as JsonRpcResponse;
   }
 
   throw new Error('Invalid JSON-RPC message: must have method (request/notification) or result/error (response)');

@@ -51,10 +51,10 @@ function Test-HealthEndpoint {
             Write-Host "   Streamable HTTP Subscribers: $($health.subscribers.streamableHttp)" -ForegroundColor Gray
         }
         
-        Write-Host "   ✓ Health endpoint OK" -ForegroundColor Green
+        Write-Host "   [OK] Health endpoint OK" -ForegroundColor Green
         return $true
     } catch {
-        Write-Host "   ✗ Health endpoint failed: $_" -ForegroundColor Red
+        Write-Host "   [FAIL] Health endpoint failed: $_" -ForegroundColor Red
         return $false
     }
 }
@@ -69,10 +69,10 @@ function Test-RootEndpoint {
         $info = $resp.Content | ConvertFrom-Json
         Write-Host "   Name: $($info.name)" -ForegroundColor Gray
         Write-Host "   Version: $($info.version)" -ForegroundColor Gray
-        Write-Host "   ✓ Root endpoint OK" -ForegroundColor Green
+        Write-Host "   [OK] Root endpoint OK" -ForegroundColor Green
         return $true
     } catch {
-        Write-Host "   ✗ Root endpoint failed: $_" -ForegroundColor Red
+        Write-Host "   [FAIL] Root endpoint failed: $_" -ForegroundColor Red
         return $false
     }
 }
@@ -97,13 +97,13 @@ function Test-SseStream {
         }
         
         Write-Host "   Content-Type: $contentType" -ForegroundColor Gray
-        Write-Host "   ✓ SSE stream endpoint headers OK" -ForegroundColor Green
+        Write-Host "   [OK] SSE stream endpoint headers OK" -ForegroundColor Green
         
         # Note: Full stream testing requires keeping connection open, which is complex in PowerShell
         # This validates the endpoint is accessible and returns correct headers
         return $true
     } catch {
-        Write-Host "   ⚠ SSE stream test: $_" -ForegroundColor Yellow
+        Write-Host "   [WARN] SSE stream test: $_" -ForegroundColor Yellow
         Write-Host "   Note: Some implementations keep SSE connections open; this may be expected." -ForegroundColor Yellow
         return $true  # Don't fail on timeout for streaming endpoints
     }
@@ -129,14 +129,16 @@ function Test-StreamableHttp {
         Write-Host "   Transfer-Encoding: $transferEncoding" -ForegroundColor Gray
         
         if ($transferEncoding -eq "chunked") {
-            Write-Host "   ✓ Streamable HTTP endpoint OK (chunked transfer)" -ForegroundColor Green
-        } else {
-            Write-Host "   ⚠ Transfer-Encoding not set to 'chunked'" -ForegroundColor Yellow
+            Write-Host "   [OK] Streamable HTTP endpoint OK (chunked transfer)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "   [WARN] Transfer-Encoding not set to 'chunked'" -ForegroundColor Yellow
         }
         
         return $true
-    } catch {
-        Write-Host "   ⚠ Streamable HTTP test: $_" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "   [WARN] Streamable HTTP test: $_" -ForegroundColor Yellow
         Write-Host "   Note: Streaming endpoints may timeout in simple HTTP requests." -ForegroundColor Yellow
         return $true  # Don't fail on timeout for streaming endpoints
     }
@@ -163,19 +165,19 @@ function Test-PostEndpoint {
         Write-Host "   Response: $($result | ConvertTo-Json -Compress)" -ForegroundColor Gray
         
         if ($postResp.StatusCode -eq 202) {
-            Write-Host "   ✓ POST endpoint returns 202 Accepted (async mode)" -ForegroundColor Green
+            Write-Host "   [OK] POST endpoint returns 202 Accepted (async mode)" -ForegroundColor Green
         } else {
-            Write-Host "   ✓ POST endpoint returns 200 OK" -ForegroundColor Green
+            Write-Host "   [OK] POST endpoint returns 200 OK" -ForegroundColor Green
         }
         
         # Test 2: Invalid Content-Type
         try {
             $badResp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "text/plain" -Body "invalid" -TimeoutSec $TimeoutSeconds -ErrorAction Stop
-            Write-Host "   ✗ POST endpoint should reject invalid Content-Type" -ForegroundColor Red
+            Write-Host "   [FAIL] POST endpoint should reject invalid Content-Type" -ForegroundColor Red
             return $false
         } catch {
             if ($_.Exception.Response.StatusCode -eq 400) {
-                Write-Host "   ✓ POST endpoint correctly rejects invalid Content-Type" -ForegroundColor Green
+                Write-Host "   [OK] POST endpoint correctly rejects invalid Content-Type" -ForegroundColor Green
             } else {
                 throw
             }
@@ -184,11 +186,11 @@ function Test-PostEndpoint {
         # Test 3: Invalid JSON body
         try {
             $badResp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body "{ invalid json }" -TimeoutSec $TimeoutSeconds -ErrorAction Stop
-            Write-Host "   ✗ POST endpoint should reject invalid JSON" -ForegroundColor Red
+            Write-Host "   [FAIL] POST endpoint should reject invalid JSON" -ForegroundColor Red
             return $false
         } catch {
             if ($_.Exception.Response.StatusCode -eq 400) {
-                Write-Host "   ✓ POST endpoint correctly rejects invalid JSON" -ForegroundColor Green
+                Write-Host "   [OK] POST endpoint correctly rejects invalid JSON" -ForegroundColor Green
             } else {
                 throw
             }
@@ -212,11 +214,11 @@ function Test-PostEndpoint {
         
         $batchResp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $batchRpc -TimeoutSec $TimeoutSeconds
         Assert-StatusCode -Actual $batchResp.StatusCode -Expected @(200, 202) -Name "POST /mcp (batch)"
-        Write-Host "   ✓ POST endpoint accepts JSON-RPC batches" -ForegroundColor Green
+        Write-Host "   [OK] POST endpoint accepts JSON-RPC batches" -ForegroundColor Green
         
         return $true
     } catch {
-        Write-Host "   ✗ POST endpoint failed: $_" -ForegroundColor Red
+        Write-Host "   [FAIL] POST endpoint failed: $_" -ForegroundColor Red
         return $false
     }
 }
@@ -229,13 +231,15 @@ function Test-ErrorScenarios {
     # Test 404 for unknown endpoint
     try {
         $resp = Invoke-WebRequest -Uri "$BaseUrl/unknown" -Method GET -TimeoutSec $TimeoutSeconds -ErrorAction Stop
-        Write-Host "   ✗ Unknown endpoint should return 404" -ForegroundColor Red
+        Write-Host "   [FAIL] Unknown endpoint should return 404" -ForegroundColor Red
         $allPassed = $false
-    } catch {
+    }
+    catch {
         if ($_.Exception.Response.StatusCode -eq 404) {
-            Write-Host "   ✓ Unknown endpoint returns 404" -ForegroundColor Green
-        } else {
-            Write-Host "   ⚠ Unknown endpoint test: $_" -ForegroundColor Yellow
+            Write-Host "   [OK] Unknown endpoint returns 404" -ForegroundColor Green
+        }
+        else {
+            Write-Host "   [WARN] Unknown endpoint test: $_" -ForegroundColor Yellow
         }
     }
     
@@ -261,17 +265,23 @@ $passed = ($results.Values | Where-Object { $_ -eq $true }).Count
 $total = $results.Count
 
 foreach ($test in $results.GetEnumerator()) {
-    $status = if ($test.Value) { "✓ PASS" } else { "✗ FAIL" }
-    $color = if ($test.Value) { "Green" } else { "Red" }
+    if ($test.Value) {
+        $status = "[PASS]"
+        $color = "Green"
+    }
+    else {
+        $status = "[FAIL]"
+        $color = "Red"
+    }
     Write-Host "$($test.Key): $status" -ForegroundColor $color
 }
 
 Write-Host "`nTotal: $passed/$total tests passed" -ForegroundColor $(if ($passed -eq $total) { "Green" } else { "Yellow" })
 
 if ($passed -eq $total) {
-    Write-Host "`n✓ All validation tests passed!" -ForegroundColor Green
+    Write-Host "`n[OK] All validation tests passed!" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "`n✗ Some validation tests failed" -ForegroundColor Red
+    Write-Host "`n[FAIL] Some validation tests failed" -ForegroundColor Red
     exit 1
 }

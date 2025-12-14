@@ -38,6 +38,7 @@ export class HealthHandler {
    * Handle health check request
    */
   public handleHealth(req: Request, res: Response): void {
+    const requestId = (req as any).requestId || 'unknown';
     const health: HealthStatus = {
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -55,9 +56,13 @@ export class HealthHandler {
       // If process is not running and should be, mark as unhealthy
       if (!health.process.running && state.restartCount > 0) {
         health.status = 'unhealthy';
+        console.warn(`[Health] ${requestId} Process not running (restartCount: ${state.restartCount})`);
       } else if (state.restartCount > 5) {
         // High restart count indicates degraded state
         health.status = 'degraded';
+        console.warn(`[Health] ${requestId} High restart count (${state.restartCount}), marking as degraded`);
+      } else {
+        console.log(`[Health] ${requestId} Process running (pid: ${state.pid}, restarts: ${state.restartCount})`);
       }
     }
 
@@ -67,10 +72,15 @@ export class HealthHandler {
         sse: this.sseSubscriberCount?.() ?? 0,
         streamableHttp: this.streamableHttpSubscriberCount?.() ?? 0,
       };
+      console.log(`[Health] ${requestId} Subscribers - SSE: ${health.subscribers.sse}, StreamableHTTP: ${health.subscribers.streamableHttp}`);
     }
 
     // Determine HTTP status code
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
+    
+    if (statusCode !== 200) {
+      console.warn(`[Health] ${requestId} Health status: ${health.status} (HTTP ${statusCode})`);
+    }
 
     res.status(statusCode).json(health);
   }

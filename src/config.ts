@@ -3,7 +3,6 @@
  */
 
 import { readFileSync } from 'fs';
-import { join } from 'path';
 import type { McpConfiguration, McpInput, McpTool, BridgeConfig } from './types.js';
 
 /**

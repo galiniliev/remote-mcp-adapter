@@ -3,6 +3,7 @@
     {
       "id": "ado_org",
       "type": "promptString",
+	  "default": "msazure",
       "description": "Azure DevOps organization name  (e.g. 'contoso')"
     }
   ],
