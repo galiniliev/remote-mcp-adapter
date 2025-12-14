@@ -28,6 +28,9 @@ export class BridgeServer {
     this.config = config;
     this.app = express();
 
+    // CORS middleware - must be before other middleware
+    this.app.use(this.corsMiddleware.bind(this));
+
     // Middleware
     this.app.use(express.json({ limit: `${config.maxMessageSize}b` }));
     this.app.use(this.loggingMiddleware.bind(this));
@@ -94,6 +97,25 @@ export class BridgeServer {
     if (!config.lazyStart) {
       this.processManager.start();
     }
+  }
+
+  /**
+   * CORS middleware to allow all origins, methods, and headers
+   */
+  private corsMiddleware(req: Request, res: Response, next: NextFunction): void {
+    // Set CORS headers for all requests
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', '*');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+
+    // Handle preflight OPTIONS requests
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
+
+    next();
   }
 
   /**
@@ -255,6 +277,7 @@ export class BridgeServer {
     });
 
     console.log('[BridgeServer] Routes registered:');
+    console.log('  - OPTIONS * (CORS preflight)');
     console.log('  - GET  /healthz');
     console.log('  - GET  /mcp/stream');
     console.log('  - POST /mcp/stream');

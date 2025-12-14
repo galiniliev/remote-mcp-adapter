@@ -41,6 +41,10 @@ export class SseHandler {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', '*');
+    res.setHeader('Access-Control-Allow-Headers', '*');
 
     // Generate unique subscriber ID
     const subscriberId = `sub_${Date.now()}_${++this.subscriberIdCounter}`;

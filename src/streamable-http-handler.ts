@@ -53,6 +53,10 @@ export class StreamableHttpHandler {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', '*');
+    res.setHeader('Access-Control-Allow-Headers', '*');
 
     // Generate unique subscriber ID
     const subscriberId = `stream_${Date.now()}_${++this.subscriberIdCounter}`;
@@ -159,6 +163,10 @@ export class StreamableHttpHandler {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no');
+        // CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', '*');
+        res.setHeader('Access-Control-Allow-Headers', '*');
 
         // Generate unique subscriber ID
         const subscriberId = `stream_post_${Date.now()}_${++this.subscriberIdCounter}`;
