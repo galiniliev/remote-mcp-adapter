@@ -193,7 +193,8 @@ export class BridgeServer {
         `[GET /mcp/streamable] ${requestId} Streamable HTTP GET requested | ` +
         `IP: ${req.ip || req.socket.remoteAddress || 'unknown'} | ` +
         `UA: ${req.headers['user-agent'] || 'unknown'} | ` +
-        `Accept: ${req.headers['accept'] || 'none'}`
+        `Accept: ${req.headers['accept'] || 'none'} | ` +
+        `Headers: ${JSON.stringify(req.headers)}`
       );
       
       // Ensure process is running before establishing stream
@@ -202,8 +203,23 @@ export class BridgeServer {
         this.processManager.start();
       }
       
-      // Handle GET request - establish stream for server-to-client messages
-      this.streamableHttpHandler.handleStream(req, res);
+      // Handle errors during stream establishment
+      try {
+        // Handle GET request - establish stream for server-to-client messages
+        this.streamableHttpHandler.handleStream(req, res);
+      } catch (error) {
+        console.error(`[GET /mcp/streamable] ${requestId} Error establishing stream:`, error);
+        try {
+          if (!res.headersSent) {
+            res.status(500).json({ 
+              error: 'Failed to establish stream',
+              details: error instanceof Error ? error.message : String(error)
+            });
+          }
+        } catch (e) {
+          console.error(`[GET /mcp/streamable] ${requestId} Failed to send error response:`, e);
+        }
+      }
     });
     
     this.app.post('/mcp/streamable', (req: Request, res: Response) => {
@@ -225,7 +241,22 @@ export class BridgeServer {
       
       // Check if client wants to establish a stream (via query parameter or header)
       // Per MCP spec: POST can optionally establish a stream for multiple responses
-      const establishStream = req.query.stream === 'true' || req.headers['x-mcp-stream'] === 'true';
+      // Also auto-establish stream if request has an ID (needed for request/response)
+      let establishStream = req.query.stream === 'true' || req.headers['x-mcp-stream'] === 'true';
+      
+      // Auto-establish stream if request has an ID (for request/response semantics)
+      if (!establishStream && req.body) {
+        if (Array.isArray(req.body)) {
+          // Check if any message in batch has an ID
+          establishStream = req.body.some((msg: any) => msg && typeof msg === 'object' && 'id' in msg && msg.id !== null && msg.id !== undefined);
+        } else if (typeof req.body === 'object' && 'id' in req.body && req.body.id !== null && req.body.id !== undefined) {
+          establishStream = true;
+        }
+      }
+      
+      if (establishStream) {
+        console.log(`[POST /mcp/streamable] ${requestId} Auto-establishing stream for request with ID`);
+      }
       
       // Handle POST request - relay messages to STDIO and optionally establish stream
       this.streamableHttpHandler.handlePost(req, res, establishStream);
@@ -394,12 +425,14 @@ export class BridgeServer {
         // Batch request
         messages = parseJsonRpcBatch(req.body);
         console.log(`[POST /mcp] ${requestId} Parsed batch: ${messages.length} messages`);
+        console.log(`[POST /mcp] ${requestId} Batch content:`, JSON.stringify(req.body, null, 2));
       } else {
         // Single message
         validateJsonRpcMessage(req.body);
         messages = [req.body];
         const method = (req.body as any).method || 'unknown';
         console.log(`[POST /mcp] ${requestId} Validated single message: method=${method}`);
+        console.log(`[POST /mcp] ${requestId} Message content:`, JSON.stringify(req.body, null, 2));
       }
 
       // Ensure process is running
@@ -467,11 +500,14 @@ export class BridgeServer {
         const typedMessage = message as JsonRpcMessage | JsonRpcBatch;
         const formatted = formatJsonRpcMessage(typedMessage);
         const method = (typedMessage as any).method || 'unknown';
+        console.log(`[POST /mcp] Message ${i + 1}/${messages.length} content:`, JSON.stringify(typedMessage, null, 2));
+        console.log(`[POST /mcp] Message ${i + 1}/${messages.length} formatted (to write):`, formatted);
         this.processManager.write(formatted);
         console.log(`[POST /mcp] Message ${i + 1}/${messages.length} written (method: ${method})`);
       } catch (error) {
         const method = (message as any)?.method || 'unknown';
         console.error(`[POST /mcp] Failed to write message ${i + 1}/${messages.length} (method: ${method}):`, error);
+        console.error(`[POST /mcp] Failed message content:`, JSON.stringify(message, null, 2));
         // Continue with other messages
       }
     }

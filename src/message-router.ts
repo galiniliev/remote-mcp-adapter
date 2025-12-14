@@ -42,6 +42,12 @@ export class MessageRouter extends EventEmitter {
         // Parse JSON-RPC message
         const message = parseJsonRpcLine(trimmed);
         
+        // Log message details
+        const messageType = (message as any).method || ((message as any).result !== undefined ? 'response' : ((message as any).error !== undefined ? 'error' : 'unknown'));
+        const messageId = (message as any).id !== undefined ? (message as any).id : 'notification';
+        console.log(`[MessageRouter] Processing message: type=${messageType}, id=${messageId}, subscribers: SSE=${this.sseHandler ? 'yes' : 'no'}, StreamableHTTP=${this.streamableHttpHandler ? 'yes' : 'no'}`);
+        console.log(`[MessageRouter] Message content:`, JSON.stringify(message, null, 2));
+        
         // Format as JSON string for broadcasting
         const jsonString = JSON.stringify(message);
 
