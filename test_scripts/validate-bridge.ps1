@@ -1,4 +1,6 @@
 # Enhanced validation script for Remote MCP Bridge endpoints
+# Tests MCP protocol compliance per https://modelcontextprotocol.io/specification/2025-11-25
+# Includes tests for list methods (tools/list, resources/list, prompts/list) and JSON-RPC 2.0 compliance
 
 Param(
     [Parameter(Mandatory = $false)]
@@ -223,8 +225,352 @@ function Test-PostEndpoint {
     }
 }
 
+function Test-McpListMethods {
+    Write-Host "`n6. Testing MCP List Methods (tools/list, resources/list, prompts/list)" -ForegroundColor Green
+    
+    $allPassed = $true
+    
+    # Test tools/list
+    try {
+        Write-Host "   6.1 Testing tools/list" -ForegroundColor Cyan
+        $toolsListReq = @{
+            jsonrpc = "2.0"
+            id      = "test-tools-list-1"
+            method  = "tools/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $toolsListReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "tools/list"
+        
+        $result = $resp.Content | ConvertFrom-Json
+        if ($result.status -eq "accepted") {
+            Write-Host "      [OK] tools/list request accepted (async mode)" -ForegroundColor Green
+        } else {
+            Write-Host "      [OK] tools/list request processed" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "      [FAIL] tools/list failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test resources/list
+    try {
+        Write-Host "   6.2 Testing resources/list" -ForegroundColor Cyan
+        $resourcesListReq = @{
+            jsonrpc = "2.0"
+            id      = "test-resources-list-1"
+            method  = "resources/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $resourcesListReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "resources/list"
+        
+        $result = $resp.Content | ConvertFrom-Json
+        if ($result.status -eq "accepted") {
+            Write-Host "      [OK] resources/list request accepted (async mode)" -ForegroundColor Green
+        } else {
+            Write-Host "      [OK] resources/list request processed" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "      [FAIL] resources/list failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test prompts/list
+    try {
+        Write-Host "   6.3 Testing prompts/list" -ForegroundColor Cyan
+        $promptsListReq = @{
+            jsonrpc = "2.0"
+            id      = "test-prompts-list-1"
+            method  = "prompts/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $promptsListReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "prompts/list"
+        
+        $result = $resp.Content | ConvertFrom-Json
+        if ($result.status -eq "accepted") {
+            Write-Host "      [OK] prompts/list request accepted (async mode)" -ForegroundColor Green
+        } else {
+            Write-Host "      [OK] prompts/list request processed" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "      [FAIL] prompts/list failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test batch with all list methods
+    try {
+        Write-Host "   6.4 Testing batch request with all list methods" -ForegroundColor Cyan
+        $batchListReq = @(
+            @{
+                jsonrpc = "2.0"
+                id      = "batch-tools-list"
+                method  = "tools/list"
+                params  = @{}
+            },
+            @{
+                jsonrpc = "2.0"
+                id      = "batch-resources-list"
+                method  = "resources/list"
+                params  = @{}
+            },
+            @{
+                jsonrpc = "2.0"
+                id      = "batch-prompts-list"
+                method  = "prompts/list"
+                params  = @{}
+            }
+        ) | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $batchListReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "batch list methods"
+        
+        $result = $resp.Content | ConvertFrom-Json
+        if ($result.messageCount -eq 3) {
+            Write-Host "      [OK] Batch request with 3 list methods accepted" -ForegroundColor Green
+        } else {
+            Write-Host "      [OK] Batch request accepted" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "      [FAIL] Batch list methods failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    return $allPassed
+}
+
+function Test-McpProtocolCompliance {
+    Write-Host "`n7. Testing MCP Protocol Compliance" -ForegroundColor Green
+    
+    $allPassed = $true
+    
+    # Test 1: Initialize handshake with proper capabilities
+    try {
+        Write-Host "   7.1 Testing initialize handshake" -ForegroundColor Cyan
+        $initReq = @{
+            jsonrpc = "2.0"
+            id      = "init-1"
+            method  = "initialize"
+            params  = @{
+                protocolVersion = "2024-11-05"
+                capabilities     = @{
+                    roots = @{
+                        listChanged = $true
+                    }
+                    sampling = @{}
+                }
+                clientInfo       = @{
+                    name    = "test-client"
+                    version = "1.0.0"
+                }
+            }
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $initReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "initialize"
+        
+        $result = $resp.Content | ConvertFrom-Json
+        if ($result.status -eq "accepted") {
+            Write-Host "      [OK] initialize request accepted with proper capabilities" -ForegroundColor Green
+        } else {
+            Write-Host "      [OK] initialize request processed" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "      [FAIL] initialize handshake failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test 2: JSON-RPC 2.0 version validation
+    try {
+        Write-Host "   7.2 Testing JSON-RPC 2.0 version requirement" -ForegroundColor Cyan
+        $badVersionReq = @{
+            jsonrpc = "1.0"
+            id      = "bad-version-1"
+            method  = "tools/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        try {
+            $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $badVersionReq -TimeoutSec $TimeoutSeconds -ErrorAction Stop
+            Write-Host "      [WARN] Server accepted invalid JSON-RPC version (may validate downstream)" -ForegroundColor Yellow
+        } catch {
+            if ($_.Exception.Response.StatusCode -eq 400) {
+                Write-Host "      [OK] Server correctly rejects invalid JSON-RPC version" -ForegroundColor Green
+            } else {
+                Write-Host "      [WARN] Unexpected error for invalid version: $_" -ForegroundColor Yellow
+            }
+        }
+    } catch {
+        Write-Host "      [WARN] JSON-RPC version test: $_" -ForegroundColor Yellow
+    }
+    
+    # Test 3: Missing jsonrpc field
+    try {
+        Write-Host "   7.3 Testing missing jsonrpc field" -ForegroundColor Cyan
+        $noJsonRpcReq = @{
+            id     = "no-jsonrpc-1"
+            method = "tools/list"
+            params = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        try {
+            $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $noJsonRpcReq -TimeoutSec $TimeoutSeconds -ErrorAction Stop
+            Write-Host "      [WARN] Server accepted request without jsonrpc field (may validate downstream)" -ForegroundColor Yellow
+        } catch {
+            if ($_.Exception.Response.StatusCode -eq 400) {
+                Write-Host "      [OK] Server correctly rejects request without jsonrpc field" -ForegroundColor Green
+            } else {
+                Write-Host "      [WARN] Unexpected error for missing jsonrpc: $_" -ForegroundColor Yellow
+            }
+        }
+    } catch {
+        Write-Host "      [WARN] Missing jsonrpc test: $_" -ForegroundColor Yellow
+    }
+    
+    # Test 4: Invalid method name
+    try {
+        Write-Host "   7.4 Testing invalid method name" -ForegroundColor Cyan
+        $invalidMethodReq = @{
+            jsonrpc = "2.0"
+            id      = "invalid-method-1"
+            method  = "invalid/method"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $invalidMethodReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "invalid method"
+        Write-Host "      [OK] Invalid method request accepted (errors handled by MCP server)" -ForegroundColor Green
+    } catch {
+        Write-Host "      [WARN] Invalid method test: $_" -ForegroundColor Yellow
+    }
+    
+    # Test 5: Request with string ID (valid per JSON-RPC spec)
+    try {
+        Write-Host "   7.5 Testing request with string ID" -ForegroundColor Cyan
+        $stringIdReq = @{
+            jsonrpc = "2.0"
+            id      = "string-id-test"
+            method  = "tools/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $stringIdReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "string ID"
+        Write-Host "      [OK] Request with string ID accepted" -ForegroundColor Green
+    } catch {
+        Write-Host "      [FAIL] String ID test failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test 6: Request with numeric ID (valid per JSON-RPC spec)
+    try {
+        Write-Host "   7.6 Testing request with numeric ID" -ForegroundColor Cyan
+        $numericIdReq = @{
+            jsonrpc = "2.0"
+            id      = 12345
+            method  = "tools/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $numericIdReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "numeric ID"
+        Write-Host "      [OK] Request with numeric ID accepted" -ForegroundColor Green
+    } catch {
+        Write-Host "      [FAIL] Numeric ID test failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test 7: Notification (no ID) - should be accepted
+    try {
+        Write-Host "   7.7 Testing notification (no ID)" -ForegroundColor Cyan
+        $notificationReq = @{
+            jsonrpc = "2.0"
+            method  = "notifications/initialized"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $notificationReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "notification"
+        Write-Host "      [OK] Notification (no ID) accepted" -ForegroundColor Green
+    } catch {
+        Write-Host "      [FAIL] Notification test failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test 8: Empty params object (valid)
+    try {
+        Write-Host "   7.8 Testing request with empty params" -ForegroundColor Cyan
+        $emptyParamsReq = @{
+            jsonrpc = "2.0"
+            id      = "empty-params-1"
+            method  = "tools/list"
+            params  = @{}
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $emptyParamsReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "empty params"
+        Write-Host "      [OK] Request with empty params accepted" -ForegroundColor Green
+    } catch {
+        Write-Host "      [FAIL] Empty params test failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    # Test 9: Missing params field (should still work, params optional)
+    try {
+        Write-Host "   7.9 Testing request without params field" -ForegroundColor Cyan
+        $noParamsReq = @{
+            jsonrpc = "2.0"
+            id      = "no-params-1"
+            method  = "tools/list"
+        } | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $noParamsReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "no params"
+        Write-Host "      [OK] Request without params field accepted" -ForegroundColor Green
+    } catch {
+        Write-Host "      [WARN] No params test: $_" -ForegroundColor Yellow
+    }
+    
+    # Test 10: Batch with mixed request types
+    try {
+        Write-Host "   7.10 Testing batch with mixed request types" -ForegroundColor Cyan
+        $mixedBatchReq = @(
+            @{
+                jsonrpc = "2.0"
+                id      = "batch-req-1"
+                method  = "tools/list"
+                params  = @{}
+            },
+            @{
+                jsonrpc = "2.0"
+                method  = "notifications/initialized"
+                params  = @{}
+            },
+            @{
+                jsonrpc = "2.0"
+                id      = "batch-req-2"
+                method  = "resources/list"
+                params  = @{}
+            }
+        ) | ConvertTo-Json -Depth 10
+        
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/mcp" -Method POST -ContentType "application/json" -Body $mixedBatchReq -TimeoutSec $TimeoutSeconds
+        Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "mixed batch"
+        Write-Host "      [OK] Batch with mixed request types accepted" -ForegroundColor Green
+    } catch {
+        Write-Host "      [FAIL] Mixed batch test failed: $_" -ForegroundColor Red
+        $allPassed = $false
+    }
+    
+    return $allPassed
+}
+
 function Test-ErrorScenarios {
-    Write-Host "`n6. Testing error scenarios" -ForegroundColor Green
+    Write-Host "`n8. Testing error scenarios" -ForegroundColor Green
     
     $allPassed = $true
     
@@ -253,6 +599,8 @@ $results = @{
     SseStream = Test-SseStream
     StreamableHttp = Test-StreamableHttp
     Post = Test-PostEndpoint
+    McpListMethods = Test-McpListMethods
+    McpProtocolCompliance = Test-McpProtocolCompliance
     Errors = Test-ErrorScenarios
 }
 
