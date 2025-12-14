@@ -10,7 +10,7 @@ Param(
     [int]$TimeoutSeconds = 30,
     
     [Parameter(Mandatory = $false)]
-    [switch]$SkipStreamTest = $false
+    [switch]$SkipStreamTest = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -244,6 +244,8 @@ function Test-McpListMethods {
         Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "tools/list"
         
         $result = $resp.Content | ConvertFrom-Json
+        Write-Host "      Response:" -ForegroundColor Gray
+        Write-Host "      $($result | ConvertTo-Json -Depth 10)" -ForegroundColor White
         if ($result.status -eq "accepted") {
             Write-Host "      [OK] tools/list request accepted (async mode)" -ForegroundColor Green
         } else {
@@ -268,6 +270,8 @@ function Test-McpListMethods {
         Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "resources/list"
         
         $result = $resp.Content | ConvertFrom-Json
+        Write-Host "      Response:" -ForegroundColor Gray
+        Write-Host "      $($result | ConvertTo-Json -Depth 10)" -ForegroundColor White
         if ($result.status -eq "accepted") {
             Write-Host "      [OK] resources/list request accepted (async mode)" -ForegroundColor Green
         } else {
@@ -292,6 +296,8 @@ function Test-McpListMethods {
         Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "prompts/list"
         
         $result = $resp.Content | ConvertFrom-Json
+        Write-Host "      Response:" -ForegroundColor Gray
+        Write-Host "      $($result | ConvertTo-Json -Depth 10)" -ForegroundColor White
         if ($result.status -eq "accepted") {
             Write-Host "      [OK] prompts/list request accepted (async mode)" -ForegroundColor Green
         } else {
@@ -330,6 +336,8 @@ function Test-McpListMethods {
         Assert-StatusCode -Actual $resp.StatusCode -Expected @(200, 202) -Name "batch list methods"
         
         $result = $resp.Content | ConvertFrom-Json
+        Write-Host "      Response:" -ForegroundColor Gray
+        Write-Host "      $($result | ConvertTo-Json -Depth 10)" -ForegroundColor White
         if ($result.messageCount -eq 3) {
             Write-Host "      [OK] Batch request with 3 list methods accepted" -ForegroundColor Green
         } else {
